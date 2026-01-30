@@ -335,28 +335,46 @@
       suggestionsList.innerHTML = '';
 
       const proxies = [
-        (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-        (targetUrl) => `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//i, '')}`,
+        {
+          label: 'allorigins-raw',
+          build: (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+          parse: async (response) => response.text(),
+        },
+        {
+          label: 'allorigins-json',
+          build: (targetUrl) => `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+          parse: async (response) => {
+            const data = await response.json();
+            return data && typeof data.contents === 'string' ? data.contents : '';
+          },
+        },
+        {
+          label: 'jina-ai',
+          build: (targetUrl) => `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//i, '')}`,
+          parse: async (response) => response.text(),
+        },
       ];
 
       try {
         let html = '';
         let lastError = null;
 
-        for (const buildProxy of proxies) {
+        for (const proxy of proxies) {
           try {
-            const response = await fetch(buildProxy(normalizedUrl));
+            const response = await fetch(proxy.build(normalizedUrl));
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
             }
-            const text = await response.text();
-            if (text && text.trim()) {
-              if (!/<(title|meta|html|head|body)[\s>]/i.test(text)) {
-                throw new Error('Proxy response did not contain HTML tags.');
-              }
-              html = text;
-              break;
+            const text = await proxy.parse(response);
+            const trimmed = text.trim();
+            if (!trimmed) {
+              throw new Error('Proxy response was empty.');
             }
+            if (!/<(title|meta|html|head|body)[\s>]/i.test(trimmed)) {
+              throw new Error('Proxy response did not contain HTML tags.');
+            }
+            html = trimmed;
+            break;
           } catch (proxyError) {
             lastError = proxyError;
           }
