@@ -334,14 +334,38 @@
       suggestionsEl.classList.add('hidden');
       suggestionsList.innerHTML = '';
 
-      const proxyUrl = `https://r.jina.ai/http://${normalizedUrl.replace(/^https?:\/\//i, '')}`;
+      const proxies = [
+        (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        (targetUrl) => `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//i, '')}`,
+      ];
 
       try {
-        const response = await fetch(proxyUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        let html = '';
+        let lastError = null;
+
+        for (const buildProxy of proxies) {
+          try {
+            const response = await fetch(buildProxy(normalizedUrl));
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const text = await response.text();
+            if (text && text.trim()) {
+              if (!/<(title|meta|html|head|body)[\s>]/i.test(text)) {
+                throw new Error('Proxy response did not contain HTML tags.');
+              }
+              html = text;
+              break;
+            }
+          } catch (proxyError) {
+            lastError = proxyError;
+          }
         }
-        const html = await response.text();
+
+        if (!html) {
+          throw lastError || new Error('No HTML returned from proxy.');
+        }
+
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
